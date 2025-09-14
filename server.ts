@@ -45,12 +45,11 @@ app.post("/api/download", async (req, res) => {
     const { title, thumbnails, lengthSeconds } = info.videoDetails;
     const thumbnailUrl = thumbnails[thumbnails.length - 1].url;
     const formats = info.formats
-      .filter(f => f.hasVideo && f.url)
+      .filter(f => f.hasVideo)
       .map(f => ({
         itag: f.itag,
         container: f.container,
         qualityLabel: f.qualityLabel || "unknown",
-        url: f.url
       }));
     if (!formats.length)
       return res.status(400).json({ error: "No downloadable video formats found" });
