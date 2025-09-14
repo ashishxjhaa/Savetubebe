@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import ytdl from "@distube/ytdl-core";
+import ytdl from "ytdl-core";
 
 const app = express();
 const PORT = process.env.PORT || 3001;

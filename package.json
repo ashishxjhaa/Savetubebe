@@ -1,16 +1,16 @@
 {
   "name": "savetube-backend",
   "version": "1.0.0",
- "main": "dist/server.js",
+  "main": "dist/server.js",
   "scripts": {
     "dev": "ts-node server.ts",
     "build": "tsc",
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "@distube/ytdl-core": "^4.16.12",
     "cors": "^2.8.5",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "ytdl-core": "^4.11.5"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
