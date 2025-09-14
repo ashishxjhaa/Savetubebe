@@ -8,13 +8,15 @@ const PORT = process.env.PORT || 3001;
 const allowedOrigins = ["https://savetube.vercel.app"];
 
 app.use(express.json());
+
 app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    return callback(new Error("Not allowed by CORS"));
-  }
+  origin: allowedOrigins,
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type"],
+  credentials: true
 }));
+
+app.options("*", cors());
 
 app.post("/api/download", async (req, res) => {
   try {
