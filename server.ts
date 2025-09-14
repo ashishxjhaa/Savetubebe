@@ -37,7 +37,8 @@ app.post("/api/download", async (req, res) => {
       requestOptions: {
         headers: {
           "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Accept-Language": "en-US,en;q=0.9"
         }
       }
     });
