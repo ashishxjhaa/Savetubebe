@@ -16,8 +16,6 @@ app.use(cors({
   credentials: true
 }));
 
-app.options("*", cors());
-
 app.post("/api/download", async (req, res) => {
   try {
     const { url } = req.body;
