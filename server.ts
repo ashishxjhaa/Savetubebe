@@ -1,7 +1,6 @@
 import express, { Request, Response } from "express";
 import cors from "cors";
-import youtubedl from "youtube-dl-exec";
-import fs from "fs";
+import ytdl from "ytdl-core";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -23,69 +22,31 @@ app.use(
   })
 );
 
-let COOKIE_PATH: string | null = null;
-const COOKIES_B64 = process.env.YTDLP_COOKIES || null;
-
-if (COOKIES_B64) {
-  try {
-    const buf = Buffer.from(COOKIES_B64, "base64");
-    COOKIE_PATH = "/tmp/ytcookies.txt";
-    fs.writeFileSync(COOKIE_PATH, buf);
-    console.log("Wrote yt cookies to", COOKIE_PATH);
-  } catch (e) {
-    console.error("Failed to write cookies from YTDLP_COOKIES:", e);
-    COOKIE_PATH = null;
-  }
-}
-
-function buildYtdlpOptions(extra: Record<string, any> = {}) {
-  const base: Record<string, any> = {
-    dumpSingleJson: true,
-    noCheckCertificates: true,
-    noWarnings: true,
-    preferFreeFormats: true,
-    youtubeSkipDashManifest: true,
-    addHeader: ["referer:youtube.com", "user-agent:googlebot"],
-    ...extra,
-  };
-  if (COOKIE_PATH) base.cookies = COOKIE_PATH;
-  return base;
-}
 
 app.post("/api/download", async (req: Request, res: Response) => {
   try {
     const { url } = req.body as { url?: string };
-    if (!url || !url.trim()) return res.status(400).json({ error: "URL is required" });
-
-    const info: any = await youtubedl(url, buildYtdlpOptions());
-
-    const title = info.title || "video";
-    const thumbnail = info.thumbnail || info.thumbnails?.[info.thumbnails.length - 1] || null;
-    const lengthSeconds = parseInt(info.duration, 10) || (info.duration ? Math.floor(info.duration) : 0);
-
-    const formats = (info.formats || [])
-      .filter((f: any) => (f.height && f.height > 0) || (f.vcodec && f.vcodec !== "none"))
-      .map((f: any) => ({
-        itag: f.format_id?.toString() ?? String(f.format_id ?? f.itag ?? ""),
-        container: f.ext || f.format || "mp4",
-        qualityLabel: f.height ? `${f.height}p` : f.format_note || f.format || "unknown",
-      }));
-
-    if (!formats.length) return res.status(400).json({ error: "No downloadable video formats found" });
-
-    return res.json({ success: true, title, thumbnail, lengthSeconds, formats });
-  } catch (err: any) {
-    const errTxt = String(err?.stderr || err?.message || err || "");
-    console.error("GET INFO ERROR:", errTxt);
-
-    if (errTxt.includes("Sign in to confirm") || errTxt.includes("Sign in required") || errTxt.includes("Sign in to confirm you")) {
-      const msg = COOKIE_PATH
-        ? "yt-dlp reports this video requires a valid signed-in session (cookies). Your server has cookies configured, but they may be invalid/expired."
-        : "yt-dlp reports this video requires a signed-in session (YouTube cookies). Please provide cookies (instructions below).";
-      return res.status(403).json({ error: "needs_cookies", message: msg });
+    if (!url || !ytdl.validateURL(url)) {
+      return res.status(400).json({ error: "Invalid URL" });
     }
 
-    return res.status(500).json({ error: "Something went wrong" });
+    const info = await ytdl.getInfo(url);
+    const formats = ytdl.filterFormats(info.formats, "videoandaudio");
+
+    return res.json({
+      success: true,
+      title: info.videoDetails.title,
+      thumbnail: info.videoDetails.thumbnails.pop()?.url,
+      lengthSeconds: parseInt(info.videoDetails.lengthSeconds),
+      formats: formats.map((f) => ({
+        itag: f.itag,
+        container: f.container,
+        qualityLabel: f.qualityLabel || "unknown",
+      })),
+    });
+  } catch (err: any) {
+    console.error("GET INFO ERROR:", err.message || err);
+    return res.status(500).json({ error: "ytdl_error", message: "Failed to fetch video info" });
   }
 });
 
@@ -93,44 +54,31 @@ app.post("/api/download", async (req: Request, res: Response) => {
 app.get("/api/download-video", async (req: Request, res: Response) => {
   try {
     const url = req.query.url as string;
-    const itag = String(req.query.itag || "");
-    if (!url || !itag) return res.status(400).json({ error: "Missing parameters" });
+    const itag = req.query.itag as string;
 
-    const info: any = await youtubedl(url, buildYtdlpOptions());
-
-    const chosen = (info.formats || []).find((f: any) => String(f.format_id) === itag);
-    if (!chosen) return res.status(400).json({ error: "Format not found" });
-
-    const ext = chosen.ext || "mp4";
-    const safeTitle = (info.title || "video").replace(/[^\w\s.-]/gi, "_");
-
-    res.setHeader("Content-Disposition", `attachment; filename="${safeTitle}.${ext}"`);
-    res.setHeader("Content-Type", "application/octet-stream");
-
-    const subprocess = (youtubedl as any).raw(url, { format: itag, output: "-" , ...(COOKIE_PATH ? { cookies: COOKIE_PATH } : {}) });
-
-    subprocess.stdout.pipe(res);
-    subprocess.stderr.on("data", (d: Buffer) => console.error("yt-dlp:", d.toString()));
-    subprocess.on("error", (e: Error) => {
-      console.error("yt-dlp process error", e);
-      if (!res.headersSent) res.status(500).end();
-    });
-    subprocess.on("close", () => {
-      if (!res.writableEnded) res.end();
-    });
-  } catch (err: any) {
-    const errTxt = String(err?.stderr || err?.message || err || "");
-    console.error("DOWNLOAD ERROR:", errTxt);
-
-    if (errTxt.includes("Sign in to confirm") || errTxt.includes("Sign in required")) {
-      const msg = COOKIE_PATH
-        ? "yt-dlp reports this video requires a valid signed-in session (cookies). Your server has cookies configured, but they may be invalid/expired."
-        : "yt-dlp reports this video requires a signed-in session (YouTube cookies). Please provide cookies (instructions below).";
-      if (!res.headersSent) return res.status(403).json({ error: "needs_cookies", message: msg });
+    if (!url || !itag || !ytdl.validateURL(url)) {
+      return res.status(400).json({ error: "Missing or invalid parameters" });
     }
 
-    if (!res.headersSent) return res.status(500).json({ error: "Something went wrong" });
+    const info = await ytdl.getInfo(url);
+    const format = info.formats.find((f) => String(f.itag) === itag);
+    if (!format) {
+      return res.status(400).json({ error: "Format not found" });
+    }
+
+    const safeTitle = info.videoDetails.title.replace(/[^\w\s.-]/gi, "_");
+    res.setHeader("Content-Disposition", `attachment; filename="${safeTitle}.${format.container || "mp4"}"`);
+    res.setHeader("Content-Type", "application/octet-stream");
+
+    ytdl(url, { quality: itag }).pipe(res);
+  } catch (err: any) {
+    console.error("DOWNLOAD ERROR:", err.message || err);
+    if (!res.headersSent) {
+      return res.status(500).json({ error: "download_failed" });
+    }
   }
 });
 
-app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
