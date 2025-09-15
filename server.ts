@@ -8,7 +8,6 @@ const PORT = process.env.PORT || 3001;
 const FRONTEND_URL = process.env.FRONTEND_URL || "https://savetube.vercel.app";
 const allowedOrigins = [FRONTEND_URL];
 
-app.use(express.json());
 app.use(
   cors({
     origin: function (origin, callback) {
@@ -16,16 +15,16 @@ app.use(
       if (allowedOrigins.includes(origin)) return callback(null, true);
       return callback(new Error("Not allowed by CORS"));
     },
-    methods: ["GET", "POST", "OPTIONS"],
+    methods: ["GET", "OPTIONS"],
     allowedHeaders: ["Content-Type"],
     credentials: true,
   })
 );
 
-
-app.post("/api/download", async (req: Request, res: Response) => {
+// ✅ Fetch video info (GET, like CloudClipper)
+app.get("/api/download", async (req: Request, res: Response) => {
   try {
-    const { url } = req.body as { url?: string };
+    const url = req.query.url as string;
     if (!url || !ytdl.validateURL(url)) {
       return res.status(400).json({ error: "Invalid URL" });
     }
@@ -46,11 +45,13 @@ app.post("/api/download", async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     console.error("GET INFO ERROR:", err.message || err);
-    return res.status(500).json({ error: "ytdl_error", message: "Failed to fetch video info" });
+    return res
+      .status(500)
+      .json({ error: "ytdl_error", message: "Failed to fetch video info" });
   }
 });
 
-
+// ✅ Stream video/audio download
 app.get("/api/download-video", async (req: Request, res: Response) => {
   try {
     const url = req.query.url as string;
@@ -67,7 +68,10 @@ app.get("/api/download-video", async (req: Request, res: Response) => {
     }
 
     const safeTitle = info.videoDetails.title.replace(/[^\w\s.-]/gi, "_");
-    res.setHeader("Content-Disposition", `attachment; filename="${safeTitle}.${format.container || "mp4"}"`);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${safeTitle}.${format.container || "mp4"}"`
+    );
     res.setHeader("Content-Type", "application/octet-stream");
 
     ytdl(url, { quality: itag }).pipe(res);
